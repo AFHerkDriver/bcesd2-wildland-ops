@@ -472,13 +472,16 @@
   // ROSTER VIEW — grouped by shift (A/B/C) · qual chips · taskbook status
   //   Admins edit via modal; per-member atomic patches (same doctrine as Firehawk).
   // ════════════════════════════════════════════════════════════════════════════
-  function MemberEditModal({ member, crew, saveCrew, deleteMember, onClose, flash }) {
+  function MemberEditModal({ member, crew, saveCrew, deleteMember, onClose, flash, pinAdmin, getSessionPin }) {
     const isNew = !member;
     const nextId = crew.reduce((m, c) => Math.max(m, c.id), 0) + 1;
     const [f, setF] = useState(member ? JSON.parse(JSON.stringify(member)) : {
       id: nextId, name:"", first:"", rank:"FF", shift:"ADM", tier:"staff", hasPin:false,
       heavy:false, quals:[], taskbooks:[], archived:false });
     const [tbPos, setTbPos] = useState(TB_POSITIONS[0]);
+    const [pinDraft, setPinDraft] = useState("");
+    const [clearPin, setClearPin] = useState(false);
+    const [pinBusy, setPinBusy] = useState(false);
     const set = (k, v) => setF(p => ({ ...p, [k]: v }));
     const toggleQual = (code) => setF(p => ({ ...p, quals: p.quals.indexOf(code) !== -1 ? p.quals.filter(q => q !== code) : p.quals.concat([code]) }));
     const openTb = () => {
@@ -489,10 +492,32 @@
     const removeTb = (idx) => set("taskbooks", f.taskbooks.filter((_, i) => i !== idx));
     const save = async () => {
       if (!f.name.trim()) { flash("Last name required"); return; }
-      const updated = isNew ? crew.concat([f]) : crew.map(c => c.id === f.id ? f : c);
+      let member2 = f;
+      // PIN changes go to the auth Worker FIRST — PINs never touch the page or Firestore.
+      if (pinAdmin && (pinDraft.trim() || clearPin) && AUTH) {
+        if (!getSessionPin()) { flash("Sign out and back in to manage PINs (session PIN not in memory)"); return; }
+        setPinBusy(true);
+        try {
+          if (pinDraft.trim()) {
+            const r = await fetch(AUTH + "/set-pin", { method:"POST", headers:{ "Content-Type":"application/json" },
+              body: JSON.stringify({ authPin: getSessionPin(), id: f.id, newPin: pinDraft.trim(), tier: f.tier === "owner" ? "owner" : "member" }) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || !j.ok) { setPinBusy(false); flash("PIN not saved: " + (j.error || r.status)); return; }
+            member2 = { ...f, hasPin: true };
+          } else if (clearPin) {
+            const r = await fetch(AUTH + "/remove-pin", { method:"POST", headers:{ "Content-Type":"application/json" },
+              body: JSON.stringify({ authPin: getSessionPin(), id: f.id }) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || !j.ok) { setPinBusy(false); flash("PIN not cleared: " + (j.error || r.status)); return; }
+            member2 = { ...f, hasPin: false };
+          }
+        } catch (e) { setPinBusy(false); flash("Auth worker unreachable — PIN unchanged"); return; }
+        setPinBusy(false);
+      }
+      const updated = isNew ? crew.concat([member2]) : crew.map(c => c.id === member2.id ? member2 : c);
       const res = await saveCrew(updated);
       if (res.ok) { flash(isNew ? "Member added" : "Saved"); onClose(); }
-      else flash("Save failed — see error");
+      else flash("Save failed \u2014 see error");
     };
     const inp = (style) => Object.assign({ background:C.panel2, border:"1px solid "+C.border, borderRadius:8, color:C.text, padding:"8px 10px", fontSize:13, width:"100%" }, style || {});
     const lbl = (t) => h("div", { style:{ fontSize:9, letterSpacing:1.2, color:C.dim, margin:"10px 0 4px" } }, t);
@@ -516,6 +541,18 @@
             style:{ fontSize:10, fontWeight:700, letterSpacing:0.8, padding:"5px 12px", borderRadius:12,
               border:"1px solid " + (f.heavy ? C.accent : C.border), background: f.heavy ? "rgba(139,195,74,0.18)" : C.panel2, color: f.heavy ? C.accent : C.dim } },
             (f.heavy ? "✓ " : "") + "HEAVY EQUIPMENT TEAM")),
+
+        // ── App PIN — stored ONLY in the auth Worker (never in this page or Firestore) ──
+        (pinAdmin && !isNew) ? h("div", null,
+          lbl("APP PIN" + (f.hasPin ? " \u00B7 SET" : " \u00B7 NONE")),
+          h("div", { style:{ display:"flex", gap:8, alignItems:"center" } },
+            h("input", { style: inp({ flex:1 }), type:"password", inputMode:"numeric", maxLength:12,
+              placeholder: f.hasPin ? "Leave blank to keep current" : "4\u201312 digits \u00B7 blank = no sign-in",
+              value: pinDraft, onChange: e => { setPinDraft(e.target.value); if (e.target.value.trim()) setClearPin(false); } }),
+            (f.hasPin || pinDraft) ? h("button", { onClick:() => { setPinDraft(""); setClearPin(true); },
+              style:{ fontSize:10, padding:"9px 12px", borderRadius:8, border:"1px solid " + (clearPin ? C.red : C.border), background: clearPin ? "rgba(255,59,48,0.1)" : "none", color:C.red } },
+              clearPin ? "Will Clear" : "Clear Pin") : null),
+          clearPin ? h("div", { style:{ fontSize:8, color:C.amber, marginTop:4 } }, "PIN will be removed on Save \u2014 member keeps roster record but cannot sign in.") : null) : null,
         lbl("QUALIFICATIONS"),
         QUAL_CATS.map(([cat, catLabel]) =>
           h("div", { key:cat, style:{ marginBottom:6 } },
@@ -568,7 +605,7 @@
           h("button", { onClick: save, style:{ fontSize:11, fontWeight:700, padding:"9px 18px", borderRadius:8, border:"1px solid "+C.accent, background:"rgba(139,195,74,0.2)", color:C.accent } }, "Save"))));
   }
 
-  function RosterView({ crew, canEdit, saveCrew, deleteMember, flash }) {
+  function RosterView({ crew, canEdit, saveCrew, deleteMember, flash, pinAdmin, getSessionPin }) {
     const [editing, setEditing] = useState(null);   // member object | "new" | null
     const active = crew.filter(c => !c.archived);
     const openTbCount = (c) => c.taskbooks.filter(t => t.status === "open").length;
@@ -615,7 +652,7 @@
           h("span", { style:{ fontSize:9, color:C.dim, letterSpacing:1 } }, c.rank),
           h("span", { style:{ flex:1 } }),
           canEdit ? h("span", { style:{ fontSize:8, color:C.dim, letterSpacing:1 } }, "TAP TO RESTORE / DELETE") : null))) : null,
-      editing ? h(MemberEditModal, { member: editing === "new" ? null : editing, crew, saveCrew, deleteMember, onClose:() => setEditing(null), flash }) : null);
+      editing ? h(MemberEditModal, { member: editing === "new" ? null : editing, crew, saveCrew, deleteMember, onClose:() => setEditing(null), flash, pinAdmin, getSessionPin }) : null);
   }
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -1024,7 +1061,8 @@
     const [authId, setAuthId] = useState(() => { try { const s = localStorage.getItem("wildland_session"); return s ? Number(s) : null; } catch (e) { return null; } });
     const [showPin, setShowPin] = useState(false);
     const [pinError, setPinError] = useState(false);
-    useEffect(() => { try { if (authId == null) localStorage.removeItem("wildland_session"); else localStorage.setItem("wildland_session", String(authId)); } catch (e) {} }, [authId]);
+    useEffect(() => { try { if (authId == null) localStorage.removeItem("wildland_session"); else localStorage.setItem("wildland_session", String(authId)); } catch (e) {} if (authId == null) sessionPinRef.current = ""; }, [authId]);
+    const sessionPinRef = useRef("");             // this session's PIN — RAM only, cleared on sign-out
     const pageOwner = authId === PAGE_OWNER_ID;   // maintainer: full rights, invisible in roster
     const me = crew.find(c => c.id === authId && !c.archived) || null;
     const tier = pageOwner ? "owner" : (me ? me.tier : null);
@@ -1041,6 +1079,7 @@
         } }
       } catch (e) {}
       if (!found) { setPinError(true); return; }
+      sessionPinRef.current = entered;   // memory only, for /set-pin authorization — never persisted
       setAuthId(found.id); setShowPin(false); setPinError(false);
     };
 
@@ -1238,7 +1277,7 @@
           topBtn("weather", "WEATHER"), topBtn("roster", "ROSTER"), topBtn("equip", "EQUIPMENT"), topBtn("tools", "TOOLS"), topBtn("links", "LINKS")),
 
         topTab === "weather" ? h(WeatherView, { alerts, burnBan, redFlag })
-          : topTab === "roster" ? h(RosterView, { crew, canEdit, saveCrew, deleteMember, flash })
+          : topTab === "roster" ? h(RosterView, { crew, canEdit, saveCrew, deleteMember, flash, pinAdmin: pageOwner || tier === "owner", getSessionPin: () => sessionPinRef.current })
           : topTab === "equip" ? h(EquipmentView, { crew })
           : topTab === "tools" ? h(ToolsView, {})
           : h(LinksView, null),
