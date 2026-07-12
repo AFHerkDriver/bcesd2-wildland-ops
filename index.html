@@ -476,7 +476,7 @@
     const isNew = !member;
     const nextId = crew.reduce((m, c) => Math.max(m, c.id), 0) + 1;
     const [f, setF] = useState(member ? JSON.parse(JSON.stringify(member)) : {
-      id: nextId, name:"", first:"", rank:"FF", shift:"A", tier:"staff", hasPin:false,
+      id: nextId, name:"", first:"", rank:"FF", shift:"ADM", tier:"staff", hasPin:false,
       heavy:false, quals:[], taskbooks:[], archived:false });
     const [tbPos, setTbPos] = useState(TB_POSITIONS[0]);
     const set = (k, v) => setF(p => ({ ...p, [k]: v }));
@@ -502,14 +502,14 @@
         h("div", { style:{ display:"flex", gap:8 } },
           h("div", { style:{ flex:1 } }, lbl("FIRST"), h("input", { style: inp(), value:f.first, onChange:e => set("first", e.target.value) })),
           h("div", { style:{ flex:1 } }, lbl("LAST"), h("input", { style: inp(), value:f.name, onChange:e => set("name", e.target.value) }))),
-        h("div", { style:{ display:"flex", gap:8 } },
-          h("div", { style:{ flex:1 } }, lbl("RANK"), h("select", { style: inp(), value:f.rank, onChange:e => set("rank", e.target.value) },
+        h("div", { style:{ display:"flex", gap:8, flexWrap:"wrap" } },
+          h("div", { style:{ flex:"1 1 90px", minWidth:90 } }, lbl("RANK"), h("select", { style: inp(), value:f.rank, onChange:e => set("rank", e.target.value) },
             ["FF","Eng","Lt","Capt","BC","DC","AC","Chief","Mech"].map(r => h("option", { key:r, value:r }, r)))),
-          h("div", { style:{ flex:1 } }, lbl("MEDICAL"), h("select", { style: inp(), value:f.medical || "", onChange:e => set("medical", e.target.value) },
+          h("div", { style:{ flex:"1.4 1 128px", minWidth:128 } }, lbl("MEDICAL"), h("select", { style: inp(), value:f.medical || "", onChange:e => set("medical", e.target.value) },
             [["",""],["ECA","ECA"],["EMT","EMT"],["AEMT","AEMT"],["Paramedic","Paramedic"]].map(([v,l]) => h("option", { key:v||"none", value:v }, l || "\u2014")))),
-          h("div", { style:{ flex:1 } }, lbl("SHIFT"), h("select", { style: inp(), value:f.shift, onChange:e => set("shift", e.target.value) },
+          h("div", { style:{ flex:"1 1 100px", minWidth:100 } }, lbl("SHIFT"), h("select", { style: inp(), value:f.shift, onChange:e => set("shift", e.target.value) },
             ROSTER_GROUPS.map(s => h("option", { key:s, value:s }, s === "ADM" ? "Admin" : s + " Shift")))),
-          h("div", { style:{ flex:1 } }, lbl("ACCESS"), h("select", { style: inp(), value:f.tier, onChange:e => set("tier", e.target.value) },
+          h("div", { style:{ flex:"1 1 100px", minWidth:100 } }, lbl("ACCESS"), h("select", { style: inp(), value:f.tier, onChange:e => set("tier", e.target.value) },
             [["staff","Staff"],["admin","Admin"],["owner","Owner"]].map(([v,l]) => h("option", { key:v, value:v }, l))))),
         h("div", { style:{ display:"flex", alignItems:"center", gap:8, marginTop:12 } },
           h("button", { onClick:() => set("heavy", !f.heavy),
@@ -577,7 +577,13 @@
         h("button", { onClick:() => setEditing("new"), style:{ fontSize:11, fontWeight:700, padding:"8px 14px", borderRadius:9, border:"1px solid "+C.accent, background:"rgba(139,195,74,0.14)", color:C.accent } }, "+ Add Member")) : null,
       h("div", { className:"wl-roster" }, ROSTER_GROUPS.map(sh => {
         const sc = SHIFT_COLORS[sh];
-        const members = active.filter(c => c.shift === sh);
+        // Sort: rank seniority (Chief high → FF low, Mech last), then last name A-Z, then first.
+        const RANK_ORDER = { Chief:0, AC:1, DC:2, BC:3, Capt:4, Lt:5, Eng:6, FF:7, Mech:8 };
+        const rankKey = c => (RANK_ORDER[c.rank] != null ? RANK_ORDER[c.rank] : 7);
+        const members = active.filter(c => c.shift === sh).slice().sort((a, b) =>
+          rankKey(a) - rankKey(b)
+          || String(a.name || "").localeCompare(String(b.name || ""))
+          || String(a.first || "").localeCompare(String(b.first || "")));
         return h("div", { key:sh, style:{ marginBottom:14 } },
           h("div", { style:{ display:"flex", alignItems:"center", gap:8, marginBottom:8 } },
             h("span", { style:{ fontSize:13, fontWeight:700, letterSpacing:1.5, color:sc.color, background:sc.bg, border:"1px solid "+sc.border, borderRadius:6, padding:"2px 10px" } }, GROUP_LABEL(sh)),
