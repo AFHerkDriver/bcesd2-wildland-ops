@@ -403,18 +403,22 @@
     const rh = (p) => (p.relativeHumidity && p.relativeHumidity.value != null) ? p.relativeHumidity.value + "%" : "—";
 
     return h("div", { className:"wl-weather" },
-      // Fire-danger status strip — the two wildland-critical flags, always visible with an honest state
-      card(h("div", { style:{ display:"flex", gap:10 } },
-        [["RED FLAG", redFlag, redFlag == null ? null : !!redFlag.active, "NWS"],
-         ["BURN BAN", burnBan, burnBan == null ? null : !!burnBan.underBan, "TFS"]].map(([label, raw, on, src]) =>
-          h("div", { key: label, style:{ flex:1, textAlign:"center", padding:"10px 6px", borderRadius:10,
-            border:"1px solid " + (on === null ? C.border : on ? "rgba(255,59,48,0.5)" : "rgba(52,199,89,0.4)"),
-            background: on === null ? C.panel2 : on ? "rgba(255,59,48,0.12)" : "rgba(52,199,89,0.08)" } },
-            h("div", { style:{ fontSize:11, fontWeight:700, letterSpacing:1.5, color: on === null ? C.dim : on ? C.red : C.green } },
-              on === null ? label + " — UNVERIFIED" : on ? label + " ACTIVE" : "NO " + label),
-            h("div", { style:{ fontSize:8, color:C.dim, marginTop:3, letterSpacing:0.5 } },
-              on === null ? "source unreachable — verify before ops" : src + (raw && raw.updated ? " · " + fmtWxTime(raw.updated) : ""))))),
-        { padding:"10px" }),
+      // Fire-danger banners — gradient style, honest 3-state, living on the Weather tab
+      h("div", { style:{ gridColumn:"1 / -1" } },
+        [["\uD83D\uDEA9", "RED FLAG", redFlag, redFlag == null ? null : !!redFlag.active, "Extreme fire weather conditions \u00B7 NWS", C.red],
+         ["\uD83D\uDD25", "BURN BAN", burnBan, burnBan == null ? null : !!burnBan.underBan, "Unincorporated Bexar County \u00B7 TFS", C.fire]].map(([icon, label, raw, on, activeSub, hue]) => {
+          const shade = on === null ? C.amber : on ? hue : C.green;
+          const title = on === null ? label + " \u2014 UNVERIFIED" : on ? (label === "RED FLAG" ? "RED FLAG WARNING" : "BURN BAN IN EFFECT") : "NO " + label;
+          const sub = on === null ? "Source unreachable \u2014 verify before ops"
+                    : on ? activeSub + (raw && raw.updated ? " \u00B7 " + fmtWxTime(raw.updated) : "")
+                    : (label === "RED FLAG" ? "NWS" : "TFS") + (raw && raw.updated ? " \u00B7 " + fmtWxTime(raw.updated) : "");
+          return h("div", { key: label,
+            style:{ display:"flex", alignItems:"center", gap:10, background:"linear-gradient(135deg," + shade + "33," + shade + "14)", border:"1px solid " + shade + "80", borderRadius:10, padding:"9px 13px", marginBottom:8 } },
+            h("span", { style:{ fontSize:16, flexShrink:0 } }, on ? icon : on === null ? "\u26A0\uFE0F" : "\u2705"),
+            h("div", { style:{ minWidth:0 } },
+              h("div", { style:{ fontSize:11, fontWeight:700, color:shade, letterSpacing:1.5 } }, title),
+              h("div", { style:{ fontSize:9, color:C.dim, letterSpacing:0.5, marginTop:1 } }, sub)));
+        })),
 
       // Active NWS alerts (full list — banners up top show the same set)
       alerts && alerts.length ? card(alerts.map((a, i) =>
@@ -1265,9 +1269,7 @@
         (BACKEND_ON && sync === "offline") ? h("div", { style:{ background:"rgba(244,67,54,0.08)", border:"1px solid rgba(244,67,54,0.4)", borderRadius:10, padding:"8px 12px", marginBottom:10, fontSize:9, color:C.red, letterSpacing:0.5 } },
           "⚠️ BACKEND UNREACHABLE — roster may be stale; edits will not save. Retrying automatically.") : null,
 
-        // Alert banners — visible on every tab
-        (redFlag && redFlag.active) ? wxBanner("🚩", "RED FLAG WARNING", "Extreme fire weather conditions · NWS" + (fmtWxTime(redFlag.updated) ? " · " + fmtWxTime(redFlag.updated) : ""), C.red, "rf") : null,
-        (burnBan && burnBan.underBan) ? wxBanner("🔥", "BURN BAN IN EFFECT", "Unincorporated Bexar County · TFS" + (fmtWxTime(burnBan.updated) ? " · " + fmtWxTime(burnBan.updated) : ""), C.fire, "bb") : null,
+        // Alert banners — visible on every tab (RF/burn ban live on the Weather tab strip)
         alerts.filter(a => a.event !== "Red Flag Warning").map((a, i) =>
           wxBanner(a.group.icon, a.event.toUpperCase(), "Bexar County · until " + fmtUntil(a.ends) + " · NWS", a.group.hue, "al" + i)),
         alertsOk === false ? h("div", { style:{ fontSize:8, color:C.amber, letterSpacing:0.5, marginBottom:8 } }, "⚠️ NWS alert feed unreachable — banners may be incomplete. Verify at weather.gov.") : null,
