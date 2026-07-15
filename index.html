@@ -353,7 +353,17 @@
       });
     });
     // dedup identical events, keep first (earliest listed = highest group priority)
-    const seen = {}; return out.filter(a => { const k = a.event; if (seen[k]) return false; seen[k] = 1; return true; });
+    const seen = {}; const uniq = out.filter(a => { const k = a.event; if (seen[k]) return false; seen[k] = 1; return true; });
+    // COLLAPSE TO MOST SEVERE PER HAZARD FAMILY: e.g. Flash Flood Warning + Flood
+    // Warning + Flood Watch -> only the Flash Flood Warning shows. Severity:
+    // Warning > Watch > Advisory > Statement; "Flash" outranks within a tier.
+    const famKey = (ev) => /flood/i.test(ev) ? "flood"
+      : ev.replace(/\s*(Warning|Watch|Advisory|Statement)\s*$/i, "").trim().toLowerCase();
+    const sev = (ev) => (/Warning$/i.test(ev) ? 0 : /Watch$/i.test(ev) ? 10 : /Advisory$/i.test(ev) ? 20 : 30)
+      + (/flash/i.test(ev) ? -1 : 0);
+    const best = {};
+    uniq.forEach(a => { const k = famKey(a.event); if (!best[k] || sev(a.event) < sev(best[k].event)) best[k] = a; });
+    return uniq.filter(a => best[famKey(a.event)] === a);
   }
   const fmtWxTime = (iso) => { if (!iso) return ""; try { return new Date(iso).toLocaleTimeString("en-US", { hour:"2-digit", minute:"2-digit" }); } catch (e) { return ""; } };
   const fmtUntil  = (iso) => { if (!iso) return "further notice"; try { const d = new Date(iso); return d.toLocaleString("en-US", { weekday:"short", hour:"numeric", minute:"2-digit" }); } catch (e) { return "further notice"; } };
@@ -420,13 +430,7 @@
               h("div", { style:{ fontSize:9, color:C.dim, letterSpacing:0.5, marginTop:1 } }, sub)));
         })),
 
-      // Active NWS alerts (full list — banners up top show the same set)
-      alerts && alerts.length ? card(alerts.map((a, i) =>
-        h("div", { key:i, style:{ display:"flex", alignItems:"center", gap:8, padding:"6px 0", borderBottom: i < alerts.length-1 ? "1px solid "+C.border : "none" } },
-          h("span", { style:{ fontSize:14 } }, a.group.icon),
-          h("div", null,
-            h("div", { style:{ fontSize:11, fontWeight:700, color:a.group.hue, letterSpacing:0.8 } }, a.event.toUpperCase()),
-            h("div", { style:{ fontSize:9, color:C.dim, marginTop:1 } }, "until " + fmtUntil(a.ends)))))) : null,
+      // (NWS alert details live in the top banners — no duplicate list here)
 
       // Next 12 hours — fire weather strip (RH / wind / gust)
       card([
